@@ -220,7 +220,8 @@ public class ShopTools {
         map.put("sold", shop.getSold());
         map.put("openHours", shop.getOpenHours());
         if (shop.getDistance() != null) {
-            map.put("distanceMeters", Math.round(shop.getDistance() * 1000));
+            // Redis GEO 返回的单位就是米，不要再换算
+            map.put("distanceMeters", Math.round(shop.getDistance()));
         }
         return map;
     }

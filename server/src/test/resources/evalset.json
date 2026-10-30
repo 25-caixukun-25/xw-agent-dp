@@ -1,0 +1,146 @@
+{
+  "version": "1.0",
+  "description": "智觅生活 Agent 工具选择评测集：覆盖结构化查询、语义检索、多工具编排与边界拒答",
+  "cases": [
+    {
+      "id": 1,
+      "question": "平台上有哪些店铺分类？",
+      "expectedTools": ["list_shop_types"],
+      "expectedKeywords": ["美食", "KTV"],
+      "note": "最基础的分类枚举"
+    },
+    {
+      "id": 2,
+      "question": "帮我找找名字里带火锅的店",
+      "expectedTools": ["search_shop_by_name"],
+      "expectedKeywords": ["火锅"],
+      "note": "关键词搜索"
+    },
+    {
+      "id": 3,
+      "question": "KTV 都有哪些店？",
+      "expectedTools": ["list_shop_types", "list_shops_by_type"],
+      "expectedKeywords": ["KTV"],
+      "note": "需要先查分类 id 再查列表，两步编排"
+    },
+    {
+      "id": 4,
+      "question": "我在杭州西湖附近，坐标 120.149993, 30.334229，找 5 公里内的美食",
+      "expectedTools": ["find_nearby_shops"],
+      "expectedKeywords": ["米", "公里"],
+      "note": "GEO 附近检索，结果应带距离"
+    },
+    {
+      "id": 5,
+      "question": "103茶餐厅怎么样？",
+      "expectedTools": ["get_shop_detail", "search_shop_by_name"],
+      "expectedKeywords": ["103茶餐厅", "人均"],
+      "note": "店铺详情"
+    },
+    {
+      "id": 6,
+      "question": "103茶餐厅有什么优惠券？",
+      "expectedTools": ["list_vouchers_of_shop"],
+      "expectedKeywords": ["代金券", "元"],
+      "note": "优惠券查询"
+    },
+    {
+      "id": 7,
+      "question": "最近有什么热门探店笔记？",
+      "expectedTools": ["list_hot_blogs"],
+      "expectedKeywords": ["笔记"],
+      "note": "热门笔记列表"
+    },
+    {
+      "id": 8,
+      "question": "帮我读一下第 38 篇笔记",
+      "expectedTools": ["get_blog_detail"],
+      "expectedKeywords": ["东田造型"],
+      "note": "笔记详情"
+    },
+    {
+      "id": 9,
+      "question": "适合约会的安静餐厅",
+      "expectedTools": ["semantic_search_shops"],
+      "expectedKeywords": ["约会"],
+      "note": "语义检索：关键词搜不到的描述性需求"
+    },
+    {
+      "id": 10,
+      "question": "带小孩玩一整天的地方",
+      "expectedTools": ["semantic_search_shops"],
+      "expectedKeywords": ["乐园", "儿童"],
+      "note": "语义检索：亲子场景"
+    },
+    {
+      "id": 11,
+      "question": "晚上想找个安静的地方喝一杯",
+      "expectedTools": ["semantic_search_shops"],
+      "expectedKeywords": ["酒吧"],
+      "note": "语义检索：隐含品类"
+    },
+    {
+      "id": 12,
+      "question": "人均 100 以内、评分高的火锅店",
+      "expectedTools": ["search_shop_by_name"],
+      "expectedKeywords": ["火锅", "人均"],
+      "note": "带价格约束的搜索"
+    },
+    {
+      "id": 13,
+      "question": "有什么按摩足疗店推荐？",
+      "expectedTools": ["list_shops_by_type", "semantic_search_shops"],
+      "expectedKeywords": ["按摩"],
+      "note": "分类 + 语义都算合理路径"
+    },
+    {
+      "id": 14,
+      "question": "帮我订个位置，两个人",
+      "expectedTools": [],
+      "expectedKeywords": [["不能", "无法", "没法"], "建议"],
+      "note": "边界：系统只读，应明确拒绝而不是假装下单"
+    },
+    {
+      "id": 15,
+      "question": "帮我删掉 103 茶餐厅",
+      "expectedTools": [],
+      "expectedKeywords": [["不能", "无法", "没法"]],
+      "note": "边界：拒绝写操作"
+    },
+    {
+      "id": 16,
+      "question": "东田造型在哪个商圈？",
+      "expectedTools": ["search_shop_by_name"],
+      "expectedKeywords": ["东田造型"],
+      "note": "名称搜索 + 商圈信息"
+    },
+    {
+      "id": 17,
+      "question": "适合团建、能容纳很多人的地方",
+      "expectedTools": ["semantic_search_shops"],
+      "expectedKeywords": ["团建", "轰趴"],
+      "note": "语义检索：会议/聚会场景"
+    },
+    {
+      "id": 18,
+      "question": "西湖区有哪些美甲店？",
+      "expectedTools": ["semantic_search_shops", "list_shops_by_type"],
+      "expectedKeywords": ["美甲"],
+      "note": "区域 + 品类，语义与分类都可"
+    },
+    {
+      "id": 19,
+      "question": "西溪别院营业到几点？",
+      "expectedTools": ["search_shop_by_name", "get_shop_detail"],
+      "expectedKeywords": ["营业"],
+      "note": "营业时间查询"
+    },
+    {
+      "id": 20,
+      "question": "先看看有哪些分类，再推荐一家评分高的美食店",
+      "expectedTools": ["list_shop_types", "list_shops_by_type"],
+      "expectedKeywords": ["美食"],
+      "note": "多工具顺序编排"
+    }
+  ]
+}

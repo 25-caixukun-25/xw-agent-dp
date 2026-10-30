@@ -74,3 +74,29 @@ export const listHotBlogs = (current = 1) =>
   http.get<any, Blog[]>('/blog/hot', { params: { current } })
 
 export const getBlog = (id: number | string) => http.get<any, Blog>(`/blog/${id}`)
+
+export interface UsageRecord {
+  time: string
+  sessionId: string
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  costMs: number
+  answerChars: number
+  estimatedYuan: string
+}
+
+export interface UsageSummary {
+  recent: UsageRecord[]
+  today: {
+    date: string
+    requests: number
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+    estimatedYuan: string
+  }
+}
+
+export const getUsage = (limit = 1) =>
+  http.get<any, UsageSummary>('/agent/usage', { params: { limit } })

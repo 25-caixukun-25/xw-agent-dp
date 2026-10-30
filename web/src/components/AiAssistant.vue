@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { ChatDotRound, Promotion } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import { getUsage } from '@/api'
+import type { UsageRecord, UsageSummary } from '@/api'
 import { useAssistantStore } from '@/stores/assistant'
 
 interface ChatMessage {
@@ -9,11 +11,10 @@ interface ChatMessage {
   content: string
   streaming?: boolean
   tools?: string[]
-  usage?: { prompt: number; completion: number }
 }
 
 const TOOL_LABELS: Record<string, string> = {
-  list_shop_types: '查询分类',
+  list_shop_types: '查询店铺分类',
   search_shop_by_name: '搜索店铺',
   list_shops_by_type: '浏览分类店铺',
   find_nearby_shops: '查找附近店铺',
@@ -29,13 +30,14 @@ const messages = ref<ChatMessage[]>([])
 const input = ref('')
 const sending = ref(false)
 const listRef = ref<HTMLElement | null>(null)
-
-function costText(usage: { prompt: number; completion: number }) {
-  const yuan = (usage.prompt / 1_000_000) * 3 + (usage.completion / 1_000_000) * 9
-  return `本次 ${usage.prompt + usage.completion} tokens · 约 ¥${yuan.toFixed(4)}`
-}
+const lastUsage = ref<UsageRecord | null>(null)
+const todayUsage = ref<UsageSummary['today'] | null>(null)
 
 const SESSION_KEY = 'hmdp_agent_session'
+
+const fabStyle = computed(() => ({
+  right: assistant.visible ? '444px' : '24px'
+}))
 
 function sessionId() {
   let id = localStorage.getItem(SESSION_KEY)
@@ -54,6 +56,20 @@ function scrollToBottom() {
   })
 }
 
+function toolLabel(name: string) {
+  return TOOL_LABELS[name] || name
+}
+
+async function loadUsage() {
+  try {
+    const summary = await getUsage(1)
+    lastUsage.value = summary.recent?.[0] || null
+    todayUsage.value = summary.today || null
+  } catch {
+    // 用量展示失败不影响对话
+  }
+}
+
 async function send(text?: string) {
   const content = (text ?? input.value).trim()
   if (!content || sending.value) {
@@ -61,7 +77,7 @@ async function send(text?: string) {
   }
   input.value = ''
   messages.value.push({ role: 'user', content })
-  const reply: ChatMessage = { role: 'assistant', content: '', streaming: true }
+  const reply: ChatMessage = { role: 'assistant', content: '', streaming: true, tools: [] }
   messages.value.push(reply)
   sending.value = true
   scrollToBottom()
@@ -103,40 +119,57 @@ async function send(text?: string) {
         } catch {
           continue
         }
-        if (event.type === 'delta') {
-          reply.content += event.content
-          scrollToBottom()
-        } else if (event.type === 'tool') {
-          reply.tools = reply.tools || []
-          reply.tools.push(TOOL_LABELS[event.content] || event.content)
-          scrollToBottom()
-        } else if (event.type === 'usage') {
-          const [prompt, completion] = event.content.split(',').map((item) => Number(item) || 0)
-          reply.usage = { prompt, completion }
-        } else if (event.type === 'session') {
-          localStorage.setItem(SESSION_KEY, event.content)
-        } else if (event.type === 'error') {
-          reply.content = reply.content || `出错了：${event.content}`
+        switch (event.type) {
+          case 'delta':
+            reply.content += event.content
+            scrollToBottom()
+            break
+          case 'tool':
+            reply.tools = reply.tools || []
+            reply.tools.push(toolLabel(event.content))
+            scrollToBottom()
+            break
+          case 'session':
+            localStorage.setItem(SESSION_KEY, event.content)
+            break
+          case 'error':
+            reply.content = reply.content || `出错了：${event.content}`
+            ElMessage.error(event.content)
+            break
+          default:
+            break
         }
       }
     }
     if (!reply.content) {
-      reply.content = '没有拿到回复，请稍后重试'
+      reply.content = '没有收到回复，请稍后再试'
     }
   } catch (error) {
-    reply.content = `请求失败：${(error as Error).message}`
-    ElMessage.error('AI 助手请求失败')
+    const reason = (error as Error).message || '网络异常'
+    reply.content = `请求失败：${reason}`
+    ElMessage.error(`AI 助手请求失败：${reason}`)
   } finally {
     reply.streaming = false
     sending.value = false
     scrollToBottom()
+    await loadUsage()
   }
 }
 
 function reset() {
   messages.value = []
   localStorage.removeItem(SESSION_KEY)
-  ElMessage.success('已开始新对话')
+  lastUsage.value = null
+  todayUsage.value = null
+  ElMessage.success('已开启新对话')
+}
+
+function toggle() {
+  if (assistant.visible) {
+    assistant.close()
+  } else {
+    assistant.openFromFab()
+  }
 }
 
 watch(
@@ -165,9 +198,9 @@ function handleKeydown(event: KeyboardEvent) {
 
 <template>
   <div class="assistant">
-    <button class="fab" type="button" @click="assistant.openFromFab()">
+    <button class="fab" type="button" :style="fabStyle" @click="toggle">
       <el-icon :size="22"><ChatDotRound /></el-icon>
-      <span>问 AI</span>
+      <span>{{ assistant.visible ? '收起' : '问 AI' }}</span>
     </button>
 
     <el-drawer
@@ -175,6 +208,8 @@ function handleKeydown(event: KeyboardEvent) {
       direction="rtl"
       size="420px"
       :with-header="false"
+      :modal="false"
+      :lock-scroll="false"
       class="assistant-drawer"
     >
       <div class="panel">
@@ -202,30 +237,40 @@ function handleKeydown(event: KeyboardEvent) {
             class="bubble-row"
             :class="message.role"
           >
-            <div class="bubble">
-              <div v-if="message.role === 'assistant' && message.tools?.length" class="tool-line">
-                <span class="pulse" />
-                {{ message.tools[message.tools.length - 1] }}
-              </div>
-              <span v-if="message.streaming && !message.content" class="typing">思考中…</span>
-              <template v-else>{{ message.content }}</template>
+            <div
+              v-if="message.role === 'assistant' && message.streaming && !message.content && message.tools?.length"
+              class="tool-line"
+            >
+              <span class="pulse" />
+              正在{{ message.tools[message.tools.length - 1] }}…
             </div>
-            <div v-if="message.role === 'assistant' && message.usage" class="usage">
-              {{ costText(message.usage) }}
+            <div class="bubble">
+              <span v-if="message.streaming && !message.content && !message.tools?.length" class="typing">
+                思考中…
+              </span>
+              <template v-else>{{ message.content }}</template>
             </div>
           </div>
         </div>
 
-        <footer class="composer">
-          <el-input
-            v-model="input"
-            type="textarea"
-            :rows="2"
-            resize="none"
-            placeholder="想找什么样的店？回车发送，Shift+回车换行"
-            @keydown="handleKeydown"
-          />
-          <el-button type="primary" :loading="sending" @click="send()">发送</el-button>
+        <footer class="footer">
+          <div v-if="lastUsage" class="usage-bar">
+            本次消耗 {{ lastUsage.totalTokens }} tokens（输入 {{ lastUsage.promptTokens }} / 输出
+            {{ lastUsage.completionTokens }}）· 约 ¥{{ lastUsage.estimatedYuan }}
+            <span v-if="todayUsage" class="today">今日累计 {{ todayUsage.totalTokens }} tokens</span>
+          </div>
+
+          <div class="composer">
+            <el-input
+              v-model="input"
+              type="textarea"
+              :rows="2"
+              resize="none"
+              placeholder="想找什么样的店？回车发送，Shift+回车换行"
+              @keydown="handleKeydown"
+            />
+            <el-button type="primary" :loading="sending" @click="send()">发送</el-button>
+          </div>
         </footer>
       </div>
     </el-drawer>
@@ -235,7 +280,6 @@ function handleKeydown(event: KeyboardEvent) {
 <style scoped>
 .fab {
   position: fixed;
-  right: 24px;
   bottom: 28px;
   z-index: 2000;
   display: flex;
@@ -251,7 +295,7 @@ function handleKeydown(event: KeyboardEvent) {
   background: var(--brand);
   box-shadow: 0 8px 20px rgba(255, 102, 51, 0.35);
   cursor: pointer;
-  transition: transform 0.18s ease;
+  transition: right 0.24s ease, transform 0.18s ease;
 }
 
 .fab:hover {
@@ -328,37 +372,6 @@ function handleKeydown(event: KeyboardEvent) {
 
 .bubble-row {
   display: flex;
-}
-
-.bubble-row.user {
-  justify-content: flex-end;
-}
-
-.bubble {
-  max-width: 84%;
-  padding: 10px 14px;
-  font-size: 14px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  word-break: break-word;
-  border-radius: 12px;
-}
-
-.bubble-row.assistant .bubble {
-  background: #f7f8fa;
-  color: var(--text-main);
-}
-
-.bubble-row.user .bubble {
-  background: var(--brand);
-  color: #fff;
-}
-
-.typing {
-  color: #9ca3af;
-}
-
-.bubble-row {
   flex-direction: column;
 }
 
@@ -402,18 +415,50 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
-.usage {
-  margin-top: 4px;
-  font-size: 11px;
+.bubble {
+  max-width: 84%;
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 12px;
+}
+
+.bubble-row.assistant .bubble {
+  background: #f7f8fa;
+  color: var(--text-main);
+}
+
+.bubble-row.user .bubble {
+  background: var(--brand);
+  color: #fff;
+}
+
+.typing {
   color: #9ca3af;
+}
+
+.footer {
+  padding-top: 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.usage-bar {
+  margin-bottom: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #9ca3af;
+}
+
+.usage-bar .today {
+  margin-left: 8px;
 }
 
 .composer {
   display: flex;
   align-items: flex-end;
   gap: 10px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .composer :deep(.el-textarea) {

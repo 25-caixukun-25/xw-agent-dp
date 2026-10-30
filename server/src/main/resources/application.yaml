@@ -2,6 +2,14 @@ server:
   port: 8081
 
 spring:
+  # 让 Spring Boot 自己加载 .env（KEY=VALUE 即 properties 格式）。
+  # 以前只有 start-server.bat 会 set 环境变量，从 IDEA 直接运行时
+  # DEEPSEEK_API_KEY 取不到，落到占位值 sk-not-configured，模型调用返回 401。
+  # 两个路径分别覆盖「工作目录=server」和「工作目录=项目根」两种情况，均为 optional。
+  config:
+    import:
+      - optional:file:./.env[.properties]
+      - optional:file:./server/.env[.properties]
   application:
     name: zhimi-life
   datasource:

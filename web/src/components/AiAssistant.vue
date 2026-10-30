@@ -256,6 +256,7 @@ function handleKeydown(event: KeyboardEvent) {
       :with-header="false"
       :modal="false"
       :lock-scroll="false"
+      modal-penetrable
       class="assistant-drawer"
     >
       <div class="panel">
@@ -344,7 +345,9 @@ function handleKeydown(event: KeyboardEvent) {
 .fab {
   position: fixed;
   bottom: 28px;
-  z-index: 2000;
+  /* 必须高于 el-drawer 的遮罩层：overlay 的 z-index 由 Element Plus 弹层管理器
+     从 2000 起递增，悬浮球若只用 2000 会被透明遮罩盖住，导致「收起」点不动 */
+  z-index: 3000;
   display: flex;
   flex-direction: column;
   align-items: center;

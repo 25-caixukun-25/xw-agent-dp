@@ -5,11 +5,15 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.hmdp.agent.dto.AgentEvent;
 import com.hmdp.agent.dto.ChatRequest;
+import com.hmdp.agent.dto.ConfirmOrderRequest;
 import com.hmdp.agent.memory.RedisChatMemory;
+import com.hmdp.agent.order.AgentOrderService;
 import com.hmdp.agent.tool.SemanticTools;
 import com.hmdp.agent.trace.TokenUsageRecorder;
 import com.hmdp.agent.trace.ToolTraceRecorder;
 import com.hmdp.dto.Result;
+import com.hmdp.dto.UserDTO;
+import com.hmdp.utils.UserHolder;
 import com.hmdp.embedding.SemanticSearchService;
 import com.hmdp.embedding.ShopVectorIndexer;
 import com.hmdp.index.ShopGeoIndexer;
@@ -53,6 +57,7 @@ public class AgentController {
     private final SemanticSearchService searchService;
     private final SemanticTools semanticTools;
     private final ShopGeoIndexer geoIndexer;
+    private final AgentOrderService orderService;
 
     /**
      * SSE 流式对话：type=session/delta/error/done
@@ -98,7 +103,7 @@ public class AgentController {
                 int completion = completionTokens == null ? 0 : completionTokens;
                 send(emitter, AgentEvent.of("usage", prompt + "," + completion));
             }
-        }).subscribe(
+        }, currentUserId()).subscribe(
                 chunk -> send(emitter, AgentEvent.of("delta", chunk)),
                 error -> {
                     send(emitter, AgentEvent.of("error", "模型调用失败：" + rootMessage(error)));
@@ -123,8 +128,44 @@ public class AgentController {
         String sessionId = StrUtil.isBlank(request.getSessionId())
                 ? IdUtil.fastSimpleUUID()
                 : request.getSessionId();
-        String answer = agentService.chat(sessionId, request.getMessage());
+        String answer = agentService.chat(sessionId, request.getMessage(), currentUserId());
         return Result.ok(Map.of("sessionId", sessionId, "answer", answer));
+    }
+
+    /**
+     * 当前用户最新一笔待确认订单（前端据此展示二次确认卡片）
+     */
+    @GetMapping("/order/pending")
+    public Result pendingOrder() {
+        Long userId = currentUserId();
+        if (userId == null) {
+            return Result.ok(null);
+        }
+        return Result.ok(orderService.pending(userId));
+    }
+
+    /**
+     * 确认下单：同一个 orderId 重复提交会返回首次结果（duplicated=true），不会重复扣库存
+     */
+    @PostMapping("/order/confirm")
+    public Result confirmOrder(@RequestBody ConfirmOrderRequest request) {
+        try {
+            return Result.ok(orderService.confirm(Long.valueOf(request.getOrderId())));
+        } catch (NumberFormatException e) {
+            return Result.fail("orderId 格式不正确");
+        } catch (RuntimeException e) {
+            return Result.fail(e.getMessage());
+        }
+    }
+
+    @DeleteMapping("/order/pending/{orderId}")
+    public Result cancelOrder(@PathVariable String orderId) {
+        try {
+            orderService.cancel(Long.valueOf(orderId));
+            return Result.ok();
+        } catch (NumberFormatException e) {
+            return Result.fail("orderId 格式不正确");
+        }
     }
 
     /**
@@ -186,6 +227,11 @@ public class AgentController {
         } catch (Exception e) {
             log.debug("SSE 发送失败: {}", e.getMessage());
         }
+    }
+
+    private Long currentUserId() {
+        UserDTO user = UserHolder.getUser();
+        return user == null ? null : user.getId();
     }
 
     private String rootMessage(Throwable error) {

@@ -62,11 +62,7 @@ public class RedisChatMemory {
         if (StrUtil.isNotBlank(assistantMessage)) {
             messages.add(new AssistantMessage(assistantMessage));
         }
-        // 只保留最近 N 条，防止上下文无限膨胀
-        int limit = Math.max(2, maxHistoryMessages);
-        if (messages.size() > limit) {
-            messages = new ArrayList<>(messages.subList(messages.size() - limit, messages.size()));
-        }
+        messages = trim(messages, maxHistoryMessages);
         JSONArray array = new JSONArray();
         for (Message message : messages) {
             JSONObject object = new JSONObject();
@@ -80,5 +76,20 @@ public class RedisChatMemory {
 
     public void clear(String sessionId) {
         stringRedisTemplate.delete(KEY_PREFIX + sessionId);
+    }
+
+    /**
+     * 只保留最近 N 条，N 至少为 2（保证一问一答成对保留）。
+     * 抽成静态方法便于单测，不依赖 Redis。
+     */
+    public static List<Message> trim(List<Message> messages, int maxMessages) {
+        if (messages == null || messages.isEmpty()) {
+            return new ArrayList<>();
+        }
+        int limit = Math.max(2, maxMessages);
+        if (messages.size() <= limit) {
+            return new ArrayList<>(messages);
+        }
+        return new ArrayList<>(messages.subList(messages.size() - limit, messages.size()));
     }
 }

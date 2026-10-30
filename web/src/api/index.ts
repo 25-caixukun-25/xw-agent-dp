@@ -100,3 +100,20 @@ export interface UsageSummary {
 
 export const getUsage = (limit = 1) =>
   http.get<any, UsageSummary>('/agent/usage', { params: { limit } })
+
+export interface PendingOrder {
+  orderId: string
+  voucherId: string
+  title: string
+  payYuan?: number
+}
+
+export const getPendingOrder = () => http.get<any, PendingOrder | null>('/agent/order/pending')
+
+export const confirmOrder = (orderId: string) =>
+  http.post<any, { orderId: string; status: string; duplicated: boolean }>('/agent/order/confirm', {
+    orderId
+  })
+
+export const cancelOrder = (orderId: string) =>
+  http.delete<any, void>(`/agent/order/pending/${orderId}`)

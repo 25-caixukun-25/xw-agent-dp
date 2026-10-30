@@ -19,7 +19,7 @@
 
 | 能力 | 实现 |
 |---|---|
-| 工具调用 | 9 个 `@Tool` 方法，模型自主编排，单轮最多 8 次 |
+| 工具调用 | 10 个 `@Tool` 方法（9 个只读 + 1 个预留订单），模型自主编排，单轮最多 8 次 |
 | 语义检索（RAG） | 店铺描述向量化存库，查询时余弦召回 Top-K |
 | 可观测 | 每次工具调用记录耗时/结果大小，每次请求记录 token 与成本 |
 
@@ -55,7 +55,7 @@ sequenceDiagram
     participant T as 工具(MySQL/Redis)
     U->>A: POST /agent/chat (SSE)
     A->>S: stream(sessionId, message)
-    S->>L: 对话 + 9 个工具定义
+    S->>L: 对话 + 10 个工具定义
     L-->>S: tool_call: semantic_search_shops
     S->>T: 执行工具
     T-->>S: 召回店铺 JSON
@@ -201,6 +201,9 @@ start-all.bat
 | POST | `/agent/admin/reindex` | 重建向量索引 | 否 |
 | POST | `/agent/admin/reindex-geo` | 重建 GEO 索引 | 否 |
 | GET | `/agent/admin/semantic?q=` | 语义检索调试 | 否 |
+| GET | `/agent/order/pending` | 当前用户待确认订单 | 是 |
+| POST | `/agent/order/confirm` | 确认下单（orderId 幂等） | 是 |
+| DELETE | `/agent/order/pending/{orderId}` | 取消预留订单 | 是 |
 | GET | `/sse` | MCP SSE 建连 | 否 |
 | POST | `/mcp/message?sessionId=` | MCP JSON-RPC 消息 | 否 |
 
@@ -219,10 +222,11 @@ SSE 事件类型：`session` / `tool` / `delta` / `usage` / `error` / `done`。
 | 7 | `list_hot_blogs` | 热门探店笔记 |
 | 8 | `get_blog_detail` | 笔记正文（截断 300 字） |
 | 9 | `semantic_search_shops` | **语义检索**，处理"安静适合约会"这类描述性需求 |
+| 10 | `prepare_seckill_order` | **预留秒杀订单**（写操作的第一步，不扣库存，等用户确认） |
 
 设计原则：
 
-- 全部只读，不允许下单、支付、修改数据
+- 9 个只读工具 + 1 个预留订单工具；真正的扣库存必须用户在前端二次确认
 - 返回字段精简（不含图片 URL），避免上下文膨胀
 - 单轮最多 8 次调用，超限让模型基于已有信息作答
 
@@ -234,7 +238,7 @@ SSE 事件类型：`session` / `tool` / `delta` / `usage` / `error` / `done`。
 - 传输方式：SSE
 - 建连：`GET /sse`，服务端返回 `event:endpoint` 和 `/mcp/message?sessionId=...`
 - 服务标识：`zhimi-life` 1.0.0
-- 工具：与上面 9 个完全一致（复用同一批 Bean，没有复制实现）
+- 工具：与上面 10 个完全一致（复用同一批 Bean，没有复制实现）
 
 客户端配置（Claude Desktop 的 `claude_desktop_config.json`，或 WorkBuddy 自定义连接器）：
 
@@ -260,7 +264,7 @@ npx -y mcp-remote http://localhost:8081/sse
 python tools/mcp/mcp_probe.py
 ```
 
-依次执行 `initialize` → `tools/list` → `tools/call`，打印 9 个工具清单和一次真实店铺查询结果。
+依次执行 `initialize` → `tools/list` → `tools/call`，打印 10 个工具清单和一次真实店铺查询结果。
 
 ## 成本实测
 
@@ -313,6 +317,35 @@ python tools/eval/run_eval.py
 口径：工具命中 = 期望列表里任一工具被调用；期望为空的用例要求不调用任何工具；
 关键词支持同义词组（如「不能 / 无法 / 没法」命中任一即可）。
 
+## 限流与幂等
+
+**限流**：`/agent/chat` 按单 IP 限制 20 次/分钟，用 Redis 固定窗口计数（key 精确到分钟），
+超限返回 `429` 和 JSON 提示。Redis 异常时放行，避免限流组件把主链路拖垮。
+
+**幂等下单**：秒杀下单拆成两阶段。
+
+1. `prepare_seckill_order` 只生成 orderId 并写入 Redis（10 分钟有效），**不扣库存、不落库**；
+2. 前端展示确认卡片，用户点「确认下单」后调 `POST /agent/order/confirm`，这时才扣库存写订单；
+3. 以 orderId 为幂等键，结果缓存 24 小时，重复提交直接返回首次结果（`duplicated=true`），库存只扣一次。
+
+这样模型无法绕过二次确认直接扣库存，用户误点两次也不会重复下单。
+
+## 单元测试
+
+```bash
+cd server
+mvn test
+```
+
+20 个用例，全部不依赖外部服务：
+
+| 测试类 | 覆盖点 | 数量 |
+|---|---|---|
+| `VectorMathTest` | 余弦相似度：同向、正交、零向量、长度不一致 | 5 |
+| `RedisChatMemoryTest` | 记忆截断：保留最近 N 条、下限 2 条、空输入 | 4 |
+| `AgentRateLimitFilterTest` | 放行、429、窗口过期、路径过滤、Redis 故障放行 | 5 |
+| `AgentOrderServiceTest` | 预留不落库、未登录、售罄、重复确认幂等、订单不存在 | 6 |
+
 ## 几个设计决策
 
 **为什么不用 Spring AI 2.x**：2.0 绑定 Spring Boot 4.1，与当前 3.5 不兼容，故选 1.1.8。
@@ -327,14 +360,15 @@ ThreadLocal 传不过去，改成轮询埋点表（250ms）推送 `tool` 事件�
 
 ## 已知限制
 
-- 只读，没有开放下单、点赞、关注等写操作
+- 写操作只开放了「预留秒杀订单」，点赞、关注、签到仍未开放
 - 语义检索没有 rerank，仅余弦相似度
-- `/agent/**` 无鉴权与限流
-- 没有单元测试与 Docker 部署
+- `/agent/**` 除限流外没有鉴权（下单接口依赖登录态，聊天接口匿名可用）
+- 没有 Docker 部署
 
 ## Roadmap
 
-- [x] MCP Server：9 个工具已通过 SSE 暴露，支持 Claude Desktop / WorkBuddy 调用
+- [x] MCP Server：10 个工具已通过 SSE 暴露，支持 Claude Desktop / WorkBuddy 调用
 - [x] 评测集：20 条用例，工具命中率 100%，关键词命中率 97.5%
-- [ ] 写操作：下单 + 二次确认 + 幂等
-- [ ] 限流、鉴权、单元测试、Docker Compose
+- [x] 写操作：秒杀下单（预留 + 二次确认 + orderId 幂等）
+- [x] 限流、单元测试（20 个用例）
+- [ ] Docker Compose 一键部署

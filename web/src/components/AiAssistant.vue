@@ -2,8 +2,8 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { ChatDotRound, Promotion } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { getUsage } from '@/api'
-import type { UsageRecord, UsageSummary } from '@/api'
+import { cancelOrder, confirmOrder, getPendingOrder, getUsage } from '@/api'
+import type { PendingOrder, UsageRecord, UsageSummary } from '@/api'
 import { useAssistantStore } from '@/stores/assistant'
 
 interface ChatMessage {
@@ -32,6 +32,8 @@ const sending = ref(false)
 const listRef = ref<HTMLElement | null>(null)
 const lastUsage = ref<UsageRecord | null>(null)
 const todayUsage = ref<UsageSummary['today'] | null>(null)
+const pendingOrder = ref<PendingOrder | null>(null)
+const confirming = ref(false)
 
 const SESSION_KEY = 'hmdp_agent_session'
 
@@ -67,6 +69,47 @@ async function loadUsage() {
     todayUsage.value = summary.today || null
   } catch {
     // 用量展示失败不影响对话
+  }
+}
+
+async function loadPendingOrder() {
+  try {
+    pendingOrder.value = await getPendingOrder()
+  } catch {
+    pendingOrder.value = null
+  }
+}
+
+async function confirmPendingOrder() {
+  if (!pendingOrder.value) {
+    return
+  }
+  confirming.value = true
+  try {
+    const result = await confirmOrder(pendingOrder.value.orderId)
+    ElMessage.success(
+      result.duplicated
+        ? `该订单已提交过，返回原订单 ${result.orderId}`
+        : `下单成功，订单号 ${result.orderId}`
+    )
+    pendingOrder.value = null
+  } catch {
+    // http 拦截器已提示
+  } finally {
+    confirming.value = false
+  }
+}
+
+async function cancelPendingOrder() {
+  if (!pendingOrder.value) {
+    return
+  }
+  try {
+    await cancelOrder(pendingOrder.value.orderId)
+    pendingOrder.value = null
+    ElMessage.info('已取消本次预订')
+  } catch {
+    // http 拦截器已提示
   }
 }
 
@@ -153,6 +196,7 @@ async function send(text?: string) {
     sending.value = false
     scrollToBottom()
     await loadUsage()
+    await loadPendingOrder()
   }
 }
 
@@ -161,6 +205,7 @@ function reset() {
   localStorage.removeItem(SESSION_KEY)
   lastUsage.value = null
   todayUsage.value = null
+  pendingOrder.value = null
   ElMessage.success('已开启新对话')
 }
 
@@ -185,6 +230,7 @@ watch(
     } else {
       scrollToBottom()
     }
+    loadPendingOrder()
   }
 )
 
@@ -254,6 +300,23 @@ function handleKeydown(event: KeyboardEvent) {
         </div>
 
         <footer class="footer">
+          <div v-if="pendingOrder" class="order-card">
+            <div class="order-info">
+              <strong>待确认订单</strong>
+              <p>
+                {{ pendingOrder.title }}
+                <span v-if="pendingOrder.payYuan != null"> · ¥{{ pendingOrder.payYuan }}</span>
+              </p>
+              <p class="order-id">订单号 {{ pendingOrder.orderId }}</p>
+            </div>
+            <div class="order-actions">
+              <el-button size="small" @click="cancelPendingOrder">取消</el-button>
+              <el-button size="small" type="primary" :loading="confirming" @click="confirmPendingOrder">
+                确认下单
+              </el-button>
+            </div>
+          </div>
+
           <div v-if="lastUsage" class="usage-bar">
             本次消耗 {{ lastUsage.totalTokens }} tokens（输入 {{ lastUsage.promptTokens }} / 输出
             {{ lastUsage.completionTokens }}）· 约 ¥{{ lastUsage.estimatedYuan }}
@@ -449,6 +512,40 @@ function handleKeydown(event: KeyboardEvent) {
   font-size: 11px;
   line-height: 1.5;
   color: #9ca3af;
+}
+
+.order-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: var(--brand-soft);
+  border: 1px dashed rgba(255, 102, 51, 0.4);
+  border-radius: 10px;
+}
+
+.order-info strong {
+  font-size: 13px;
+  color: var(--brand-dark);
+}
+
+.order-info p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--text-main);
+}
+
+.order-info .order-id {
+  color: #9ca3af;
+  font-size: 11px;
+}
+
+.order-actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
 }
 
 .usage-bar .today {

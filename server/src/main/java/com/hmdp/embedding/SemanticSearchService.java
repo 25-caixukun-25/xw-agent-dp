@@ -40,7 +40,7 @@ public class SemanticSearchService {
         float[] queryVector = embeddingClient.embedOne(query);
         List<Match> matches = new ArrayList<>(cache.size());
         for (VectorEntry entry : cache) {
-            matches.add(new Match(entry.shopId(), cosine(queryVector, entry.vector()), entry.content()));
+            matches.add(new Match(entry.shopId(), VectorMath.cosine(queryVector, entry.vector()), entry.content()));
         }
         matches.sort(Comparator.comparingDouble(Match::similarity).reversed());
         return matches.subList(0, Math.min(topK, matches.size()));
@@ -94,19 +94,4 @@ public class SemanticSearchService {
         log.info("语义索引加载完成：{} 条", entries.size());
     }
 
-    private double cosine(float[] a, float[] b) {
-        int len = Math.min(a.length, b.length);
-        double dot = 0;
-        double normA = 0;
-        double normB = 0;
-        for (int i = 0; i < len; i++) {
-            dot += a[i] * b[i];
-            normA += a[i] * a[i];
-            normB += b[i] * b[i];
-        }
-        if (normA == 0 || normB == 0) {
-            return 0;
-        }
-        return dot / (Math.sqrt(normA) * Math.sqrt(normB));
-    }
 }

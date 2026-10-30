@@ -2,6 +2,7 @@ package com.hmdp.agent;
 
 import cn.hutool.core.util.StrUtil;
 import com.hmdp.agent.memory.RedisChatMemory;
+import com.hmdp.agent.tool.OrderTools;
 import com.hmdp.agent.tool.SemanticTools;
 import com.hmdp.agent.tool.ShopTools;
 import com.hmdp.agent.trace.TokenUsageRecorder;
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Service
@@ -29,25 +31,29 @@ public class AgentService {
             2. 不确定分类 id 时，先调用 list_shop_types；用户说“附近”时，如果没给经纬度，就用分类查询并说明需要定位。
             3. 回答用中文，简洁分点，最多 5 条。每家店至少给出：店名、商圈或地址、人均（元）、评分（5 分制）。
             4. 工具没查到就如实说“没有找到”，并给出可执行的建议（换关键词、换分类），不要编造。
-            5. 你不能下单、支付、订位、删除或修改任何数据。遇到这类请求：先用一句话明确拒绝（用「不能 / 无法 / 没法」这类词），
-               再给一个可执行的替代建议；不要为了拒绝而调用查询工具，除非用户同时问了具体的店或分类。
+            5. 除了「预留秒杀订单」，你不能下单、支付、订位、删除或修改任何数据。其他写操作请求要先用一句话明确拒绝
+               （用「不能 / 无法 / 没法」这类词），再给可执行的替代建议；不要为了拒绝而调用查询工具，除非用户同时问了具体的店或分类。
             6. 金额一律用「元」，距离用「米」或「公里」。
-            7. 一次提问最多查询 8 次工具，够用就作答，不要反复试探。
+            7. 用户明确要抢券时：先用 list_vouchers_of_shop 找到券，再调用 prepare_seckill_order 预留订单；
+               然后告诉用户「订单已预留，请在下方卡片点击确认」，绝不能说已经下单成功。
+            8. 一次提问最多查询 8 次工具，够用就作答，不要反复试探。
             """;
 
     private final ChatClient chatClient;
     private final ShopTools shopTools;
     private final SemanticTools semanticTools;
+    private final OrderTools orderTools;
     private final RedisChatMemory memory;
     private final ToolTraceRecorder toolTraceRecorder;
     private final TokenUsageRecorder usageRecorder;
 
     public AgentService(ChatClient.Builder builder, ShopTools shopTools, SemanticTools semanticTools,
-                        RedisChatMemory memory, ToolTraceRecorder toolTraceRecorder,
+                        OrderTools orderTools, RedisChatMemory memory, ToolTraceRecorder toolTraceRecorder,
                         TokenUsageRecorder usageRecorder) {
         this.chatClient = builder.build();
         this.shopTools = shopTools;
         this.semanticTools = semanticTools;
+        this.orderTools = orderTools;
         this.memory = memory;
         this.toolTraceRecorder = toolTraceRecorder;
         this.usageRecorder = usageRecorder;
@@ -57,13 +63,13 @@ public class AgentService {
      * 流式对话：模型自己决定调用哪些工具，Spring AI 负责执行并回填结果
      */
     public Flux<String> stream(String sessionId, String userMessage) {
-        return stream(sessionId, userMessage, null);
+        return stream(sessionId, userMessage, null, null);
     }
 
     /**
-     * 流式对话（带工具事件与 token 用量回调）
+     * 流式对话（带工具事件、token 用量回调与当前用户上下文）
      */
-    public Flux<String> stream(String sessionId, String userMessage, AgentStreamListener listener) {
+    public Flux<String> stream(String sessionId, String userMessage, AgentStreamListener listener, Long userId) {
         List<Message> history = memory.load(sessionId);
         StringBuilder answer = new StringBuilder();
         AtomicReference<Usage> usageRef = new AtomicReference<>();
@@ -74,7 +80,8 @@ public class AgentService {
                 .system(SYSTEM_PROMPT)
                 .messages(history)
                 .user(userMessage)
-                .tools(shopTools, semanticTools)
+                .tools(shopTools, semanticTools, orderTools)
+                .toolContext(userId == null ? Map.of() : Map.of("userId", userId))
                 .stream()
                 .chatResponse()
                 .doOnNext(response -> {
@@ -113,6 +120,10 @@ public class AgentService {
      * 同步对话，便于 curl / Postman 调试，token 用量更准确
      */
     public String chat(String sessionId, String userMessage) {
+        return chat(sessionId, userMessage, null);
+    }
+
+    public String chat(String sessionId, String userMessage, Long userId) {
         List<Message> history = memory.load(sessionId);
         long start = System.currentTimeMillis();
         toolTraceRecorder.beginTurn();
@@ -121,7 +132,8 @@ public class AgentService {
                     .system(SYSTEM_PROMPT)
                     .messages(history)
                     .user(userMessage)
-                    .tools(shopTools, semanticTools)
+                    .tools(shopTools, semanticTools, orderTools)
+                    .toolContext(userId == null ? Map.of() : Map.of("userId", userId))
                     .call()
                     .chatResponse();
             String answer = textOf(response);

@@ -1,24 +1,17 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Location } from '@element-plus/icons-vue'
 import { listShopTypes, listShopsByType } from '@/api'
 import type { Shop, ShopType } from '@/api'
+import { coverStyle } from '@/utils/image'
 
 // 必须和后端 ShopServiceImpl.queryShopByType 的分页大小一致，
 // 那边用的是 SystemConstants.DEFAULT_PAGE_SIZE = 5（不是 MAX_PAGE_SIZE）。
 // 不一致会导致「返回条数 === PAGE_SIZE」判断失败，触底加载永远不触发。
 const PAGE_SIZE = 5
 const DEMO_COORDS = { x: 120.149993, y: 30.334229 }
-const GRADIENTS = [
-  'linear-gradient(135deg, #ffd9c7 0%, #ffb08a 100%)',
-  'linear-gradient(135deg, #ffe7ba 0%, #ffc069 100%)',
-  'linear-gradient(135deg, #d6e4ff 0%, #adc6ff 100%)',
-  'linear-gradient(135deg, #d9f7be 0%, #95de64 100%)',
-  'linear-gradient(135deg, #efdbff 0%, #b37feb 100%)',
-  'linear-gradient(135deg, #ffd6e7 0%, #ff85c0 100%)'
-]
 
 const router = useRouter()
 
@@ -101,6 +94,23 @@ async function loadMore(depth = 0) {
   }
 }
 
+/**
+ * 哨兵还在视口内（或距离视口很近）就继续补页。
+ * 不依赖 onMounted 的时序：每次列表长度变化都会重新评估一次。
+ */
+function maybeFillViewport() {
+  if (!hasNext.value || loading.value || loadingMore.value) {
+    return
+  }
+  const el = sentinel.value
+  if (!el) {
+    return
+  }
+  if (el.getBoundingClientRect().top < window.innerHeight + 120) {
+    loadMore()
+  }
+}
+
 function setupObserver() {
   observer?.disconnect()
   if (!sentinel.value) {
@@ -158,15 +168,6 @@ function onNearbyChange(value: boolean) {
   )
 }
 
-function coverStyle(shop: Shop) {
-  const first = shop.images?.split(',')[0]?.trim()
-  const gradient = GRADIENTS[shop.id % GRADIENTS.length]
-  if (first && /^https?:\/\//.test(first)) {
-    return { backgroundImage: `url("${first}"), ${gradient}` }
-  }
-  return { backgroundImage: gradient }
-}
-
 function scoreText(shop: Shop) {
   return shop.score == null ? '暂无评分' : (shop.score / 10).toFixed(1)
 }
@@ -182,21 +183,32 @@ function openShop(id: number) {
   router.push({ name: 'shop-detail', params: { id } })
 }
 
+function onWindowScroll() {
+  maybeFillViewport()
+}
+
+// 列表长度一变化就评估一次：初次加载、切换分类、追加数据都会走到这里
+watch(
+  () => shops.value.length,
+  async () => {
+    await nextTick()
+    maybeFillViewport()
+  }
+)
+
 onMounted(async () => {
   await loadTypes()
   await loadShops()
   await nextTick()
   setupObserver()
-  // 首屏不足一屏时补一页，否则观察器只会在元素初次进入视口时回调一次
-  const el = sentinel.value
-  if (el && hasNext.value && el.getBoundingClientRect().top < window.innerHeight) {
-    loadMore()
-  }
+  maybeFillViewport()
+  window.addEventListener('scroll', onWindowScroll, { passive: true })
 })
 
 onUnmounted(() => {
   observer?.disconnect()
   observer = null
+  window.removeEventListener('scroll', onWindowScroll)
 })
 </script>
 
@@ -257,7 +269,7 @@ onUnmounted(() => {
           class="card shop-card"
           @click="openShop(shop.id)"
         >
-          <div class="cover" :style="coverStyle(shop)">
+          <div class="cover" :style="coverStyle(shop.images, shop.id)">
             <span class="cover-badge">{{ types.find((t) => t.id === shop.typeId)?.name }}</span>
             <span v-if="distanceText(shop)" class="cover-distance">{{ distanceText(shop) }}</span>
           </div>
@@ -286,7 +298,10 @@ onUnmounted(() => {
     <div v-if="!loading && shops.length" ref="sentinel" class="sentinel">
       <span v-if="loadingMore">正在加载更多…</span>
       <span v-else-if="!hasNext">已经到底啦，共 {{ shops.length }} 家店</span>
-      <span v-else>继续下滑查看更多</span>
+      <span v-else class="sentinel-more">
+        继续下滑查看更多
+        <el-button link type="primary" size="small" @click="loadMore()">加载更多</el-button>
+      </span>
     </div>
   </section>
 </template>
@@ -475,6 +490,12 @@ onUnmounted(() => {
   text-align: center;
   font-size: 13px;
   color: #9ca3af;
+}
+
+.sentinel-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .skeleton-card {

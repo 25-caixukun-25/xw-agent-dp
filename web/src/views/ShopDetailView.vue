@@ -36,8 +36,8 @@ const images = computed(() => {
 
 const coverStyle = computed(() => {
   const gradient = GRADIENTS[(shop.value?.id ?? 0) % GRADIENTS.length]
-  const url = images.value[activeImage.value]
-  if (!url || brokenImages.value[activeImage.value] || !/^https?:\/\//.test(url)) {
+  const url = imageUrl(images.value[activeImage.value])
+  if (!url || brokenImages.value[activeImage.value]) {
     return { backgroundImage: gradient }
   }
   return { backgroundImage: `url("${url}"), ${gradient}` }
@@ -45,8 +45,8 @@ const coverStyle = computed(() => {
 
 function thumbStyle(index: number) {
   const gradient = GRADIENTS[(shop.value?.id ?? 0) % GRADIENTS.length]
-  const url = images.value[index]
-  if (!url || brokenImages.value[index] || !/^https?:\/\//.test(url)) {
+  const url = imageUrl(images.value[index])
+  if (!url || brokenImages.value[index]) {
     return { backgroundImage: gradient }
   }
   return { backgroundImage: `url("${url}"), ${gradient}` }

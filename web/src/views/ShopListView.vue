@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { listShopTypes, listShopsByType } from '@/api'
@@ -114,20 +114,45 @@ function openShop(id: number) {
   router.push({ name: 'shop-detail', params: { id } })
 }
 
+function maybeFillViewport() {
+  if (!hasNext.value || loading.value || loadingMore.value) {
+    return
+  }
+  const el = sentinel.value
+  if (!el) {
+    return
+  }
+  if (el.getBoundingClientRect().top < window.innerHeight + 120) {
+    loadMore()
+  }
+}
+
+function onWindowScroll() {
+  maybeFillViewport()
+}
+
+// 列表长度变化就评估一次，不依赖挂载时序
+watch(
+  () => shops.value.length,
+  async () => {
+    await nextTick()
+    maybeFillViewport()
+  }
+)
+
 onMounted(async () => {
   await loadTypes()
   await loadShops()
   await nextTick()
   setupObserver()
-  const el = sentinel.value
-  if (el && hasNext.value && el.getBoundingClientRect().top < window.innerHeight) {
-    loadMore()
-  }
+  maybeFillViewport()
+  window.addEventListener('scroll', onWindowScroll, { passive: true })
 })
 
 onUnmounted(() => {
   observer?.disconnect()
   observer = null
+  window.removeEventListener('scroll', onWindowScroll)
 })
 </script>
 
@@ -204,7 +229,10 @@ onUnmounted(() => {
     <div v-if="!loading && shops.length" ref="sentinel" class="sentinel">
       <span v-if="loadingMore">正在加载更多…</span>
       <span v-else-if="!hasNext">已经到底啦，共 {{ shops.length }} 家店</span>
-      <span v-else>继续下滑查看更多</span>
+      <span v-else class="sentinel-more">
+        继续下滑查看更多
+        <el-button link type="primary" size="small" @click="loadMore()">加载更多</el-button>
+      </span>
     </div>
   </section>
 </template>
@@ -366,6 +394,12 @@ onUnmounted(() => {
   text-align: center;
   font-size: 13px;
   color: #9ca3af;
+}
+
+.sentinel-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .skeleton-card {

@@ -5,16 +5,9 @@ import { ElMessage } from 'element-plus'
 import { Star } from '@element-plus/icons-vue'
 import { listHotBlogs } from '@/api'
 import type { Blog } from '@/api'
+import { coverStyle } from '@/utils/image'
 
 const PAGE_SIZE = 10
-const GRADIENTS = [
-  'linear-gradient(135deg, #ffd9c7 0%, #ffb08a 100%)',
-  'linear-gradient(135deg, #ffe7ba 0%, #ffc069 100%)',
-  'linear-gradient(135deg, #d6e4ff 0%, #adc6ff 100%)',
-  'linear-gradient(135deg, #d9f7be 0%, #95de64 100%)',
-  'linear-gradient(135deg, #efdbff 0%, #b37feb 100%)',
-  'linear-gradient(135deg, #ffd6e7 0%, #ff85c0 100%)'
-]
 
 const router = useRouter()
 const blogs = ref<Blog[]>([])
@@ -43,15 +36,6 @@ function go(page: number) {
   }
   current.value = page
   load()
-}
-
-function coverStyle(blog: Blog) {
-  const gradient = GRADIENTS[blog.id % GRADIENTS.length]
-  const first = blog.images?.split(',')[0]?.trim()
-  if (first && /^https?:\/\//.test(first)) {
-    return { backgroundImage: `url("${first}"), ${gradient}` }
-  }
-  return { backgroundImage: gradient }
 }
 
 function summary(text?: string) {
@@ -116,7 +100,7 @@ onMounted(load)
           class="card blog-card"
           @click="open(blog)"
         >
-          <div class="cover" :style="coverStyle(blog)">
+          <div class="cover" :style="coverStyle(blog.images, blog.id)">
             <span class="liked">
               <el-icon><Star /></el-icon>
               {{ blog.liked ?? 0 }}

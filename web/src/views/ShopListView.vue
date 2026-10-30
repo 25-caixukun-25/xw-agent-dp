@@ -6,6 +6,7 @@ import { listShopTypes, listShopsByType } from '@/api'
 import type { Shop, ShopType } from '@/api'
 import { coverStyle } from '@/utils/image'
 
+// 与后端 ShopServiceImpl.queryShopByType 的 SystemConstants.DEFAULT_PAGE_SIZE 保持一致
 const PAGE_SIZE = 5
 
 const route = useRoute()
@@ -65,12 +66,19 @@ async function loadShops(reset = true) {
   }
 }
 
-function loadMore() {
+async function loadMore(depth = 0) {
   if (!hasNext.value || loading.value || loadingMore.value) {
     return
   }
   current.value += 1
-  loadShops(false)
+  await loadShops(false)
+  await nextTick()
+  if (depth < 3 && hasNext.value) {
+    const el = sentinel.value
+    if (el && el.getBoundingClientRect().top < window.innerHeight) {
+      loadMore(depth + 1)
+    }
+  }
 }
 
 function setupObserver() {
@@ -111,6 +119,10 @@ onMounted(async () => {
   await loadShops()
   await nextTick()
   setupObserver()
+  const el = sentinel.value
+  if (el && hasNext.value && el.getBoundingClientRect().top < window.innerHeight) {
+    loadMore()
+  }
 })
 
 onUnmounted(() => {

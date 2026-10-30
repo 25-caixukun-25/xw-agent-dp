@@ -6,6 +6,9 @@ import { Location } from '@element-plus/icons-vue'
 import { listShopTypes, listShopsByType } from '@/api'
 import type { Shop, ShopType } from '@/api'
 
+// 必须和后端 ShopServiceImpl.queryShopByType 的分页大小一致，
+// 那边用的是 SystemConstants.DEFAULT_PAGE_SIZE = 5（不是 MAX_PAGE_SIZE）。
+// 不一致会导致「返回条数 === PAGE_SIZE」判断失败，触底加载永远不触发。
 const PAGE_SIZE = 5
 const DEMO_COORDS = { x: 120.149993, y: 30.334229 }
 const GRADIENTS = [
@@ -79,13 +82,23 @@ async function loadShops(reset = true) {
   }
 }
 
-/** 触底自动翻页：再拉一页追加到列表尾部 */
-function loadMore() {
+/**
+ * 触底自动翻页：再拉一页追加到列表尾部。
+ * depth 用于首屏内容不足一屏时连续补页，避免出现「没得滚也没得加载」的死角。
+ */
+async function loadMore(depth = 0) {
   if (!hasNext.value || loading.value || loadingMore.value) {
     return
   }
   current.value += 1
-  loadShops(false)
+  await loadShops(false)
+  await nextTick()
+  if (depth < 3 && hasNext.value) {
+    const el = sentinel.value
+    if (el && el.getBoundingClientRect().top < window.innerHeight) {
+      loadMore(depth + 1)
+    }
+  }
 }
 
 function setupObserver() {
@@ -174,6 +187,11 @@ onMounted(async () => {
   await loadShops()
   await nextTick()
   setupObserver()
+  // 首屏不足一屏时补一页，否则观察器只会在元素初次进入视口时回调一次
+  const el = sentinel.value
+  if (el && hasNext.value && el.getBoundingClientRect().top < window.innerHeight) {
+    loadMore()
+  }
 })
 
 onUnmounted(() => {

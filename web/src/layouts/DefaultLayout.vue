@@ -3,7 +3,6 @@ import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import AiAssistant from '@/components/AiAssistant.vue'
-import BottomNav from '@/components/BottomNav.vue'
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -35,9 +34,6 @@ function logout() {
         </nav>
 
         <div class="user-area">
-          <el-button type="primary" size="small" round @click="router.push({ name: 'blog-new' })">
-            写笔记
-          </el-button>
           <template v-if="userStore.user">
             <router-link to="/profile" class="user-link">
               <el-avatar :size="28" :src="userStore.user.icon">
@@ -60,7 +56,6 @@ function logout() {
     </footer>
 
     <AiAssistant />
-    <BottomNav />
   </div>
 </template>
 
@@ -142,8 +137,7 @@ function logout() {
 
 .main {
   flex: 1;
-  /* 给底部导航条留出空间，避免最后一行内容被遮住 */
-  padding: 24px 0 120px;
+  padding: 24px 0 40px;
 }
 
 .footer {
@@ -169,11 +163,11 @@ function logout() {
   }
 
   .main {
-    padding: 16px 0 110px;
+    padding: 16px 0 32px;
   }
 
   .footer {
-    padding-bottom: 88px;
+    padding-bottom: 24px;
   }
 }
 </style>

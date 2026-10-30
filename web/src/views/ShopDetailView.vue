@@ -2,9 +2,10 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Clock, Location } from '@element-plus/icons-vue'
-import { getShop, listVouchers } from '@/api'
-import type { Shop, Voucher } from '@/api'
+import { ArrowLeft, Clock, Location, Share, Star } from '@element-plus/icons-vue'
+import { getShop, listHotBlogs, listVouchers, seckillVoucher } from '@/api'
+import type { Blog, Shop, Voucher } from '@/api'
+import { imageUrl } from '@/utils/image'
 import { useAssistantStore } from '@/stores/assistant'
 
 const GRADIENTS = [
@@ -25,6 +26,8 @@ const voucherLoading = ref(true)
 const loadError = ref(false)
 const activeImage = ref(0)
 const brokenImages = ref<Record<number, boolean>>({})
+const relatedBlogs = ref<Blog[]>([])
+const grabbing = ref<number | null>(null)
 
 const images = computed(() => {
   const raw = shop.value?.images || ''
@@ -96,6 +99,70 @@ function reload() {
   brokenImages.value = {}
   loadShop(id)
   loadVouchers(id)
+  loadRelatedBlogs(Number(id))
+}
+
+/**
+ * 相关探店笔记：后端没有按店铺查笔记的接口，
+ * 从热门笔记里筛出关联当前店铺的几条（最多 3 条）
+ */
+async function loadRelatedBlogs(shopId: number) {
+  relatedBlogs.value = []
+  if (!shopId) {
+    return
+  }
+  try {
+    const list = await listHotBlogs(1)
+    relatedBlogs.value = (list || [])
+      .filter((blog) => String(blog.shopId) === String(shopId))
+      .slice(0, 3)
+  } catch {
+    relatedBlogs.value = []
+  }
+}
+
+function voucherState(voucher: Voucher) {
+  const now = Date.now()
+  if (voucher.stock != null && voucher.stock < 1) {
+    return { kind: 'empty', text: '已抢光' }
+  }
+  if (voucher.beginTime && new Date(voucher.beginTime).getTime() > now) {
+    return { kind: 'waiting', text: '未开始' }
+  }
+  if (voucher.endTime && new Date(voucher.endTime).getTime() < now) {
+    return { kind: 'ended', text: '已结束' }
+  }
+  return { kind: 'active', text: '立即抢购' }
+}
+
+function discountText(voucher: Voucher) {
+  if (!voucher.payValue || !voucher.actualValue) {
+    return ''
+  }
+  const rate = (voucher.payValue * 10) / voucher.actualValue
+  return `${rate.toFixed(1)} 折`
+}
+
+function openBlog(id?: number) {
+  if (id) {
+    router.push({ name: 'blog-detail', params: { id } })
+  }
+}
+
+function relatedCover(blog: Blog) {
+  const url = imageUrl(blog.images)
+  const gradient = GRADIENTS[(blog.id ?? 0) % GRADIENTS.length]
+  return url ? { backgroundImage: `url("${url}"), ${gradient}` } : { backgroundImage: gradient }
+}
+
+async function share() {
+  const url = window.location.href
+  try {
+    await navigator.clipboard.writeText(url)
+    ElMessage.success('店铺链接已复制，去分享给朋友吧')
+  } catch {
+    ElMessage.info(`复制失败，可手动复制：${url}`)
+  }
 }
 
 function askAi() {
@@ -105,8 +172,19 @@ function askAi() {
   assistant.open(`这家店怎么样：${shop.value.name}（店铺ID：${shop.value.id}）`)
 }
 
-function grab() {
-  ElMessage.info('演示环境未开放支付，秒杀下单可通过接口体验')
+async function grab(voucher: Voucher) {
+  if (voucherState(voucher).kind !== 'active') {
+    return
+  }
+  grabbing.value = voucher.id
+  try {
+    const orderId = await seckillVoucher(voucher.id)
+    ElMessage.success(`抢购成功，订单号 ${orderId}`)
+  } catch {
+    // 未登录或库存不足时拦截器已提示
+  } finally {
+    grabbing.value = null
+  }
 }
 
 watch(
@@ -117,6 +195,7 @@ watch(
       brokenImages.value = {}
       loadShop(String(id))
       loadVouchers(String(id))
+      loadRelatedBlogs(Number(id))
     }
   }
 )
@@ -132,10 +211,13 @@ onUnmounted(() => {
 
 <template>
   <div class="detail">
-    <button class="back" type="button" @click="router.back()">
-      <el-icon><ArrowLeft /></el-icon>
-      返回
-    </button>
+    <div class="toolbar">
+      <button class="back" type="button" @click="router.back()">
+        <el-icon><ArrowLeft /></el-icon>
+        返回
+      </button>
+      <el-button :icon="Share" circle size="small" title="复制店铺链接" @click="share" />
+    </div>
 
     <div v-if="loading" class="card loading-card">
       <el-skeleton animated>
@@ -228,12 +310,53 @@ onUnmounted(() => {
               <span class="pay">
                 {{ (voucher.payValue ?? 0) > 0 ? `售价 ¥${yuan(voucher.payValue)}` : '免费领取' }}
               </span>
-              <el-button type="primary" size="small" @click="grab">立即抢购</el-button>
+              <span v-if="discountText(voucher)" class="discount">{{ discountText(voucher) }}</span>
+              <span v-if="voucher.stock != null" class="stock">剩 {{ voucher.stock }} 张</span>
+              <el-button
+                type="primary"
+                size="small"
+                :disabled="voucherState(voucher).kind !== 'active'"
+                :loading="grabbing === voucher.id"
+                @click="grab(voucher)"
+              >
+                {{ voucherState(voucher).text }}
+              </el-button>
             </div>
           </article>
         </div>
 
         <el-empty v-else description="这家店暂时没有可用优惠券" :image-size="90" />
+      </section>
+
+      <section class="related card">
+        <header class="section-head">
+          <h2>探店笔记</h2>
+          <span class="muted">来自真实到店体验</span>
+        </header>
+
+        <div v-if="relatedBlogs.length" class="related-list">
+          <article
+            v-for="blog in relatedBlogs"
+            :key="blog.id"
+            class="related-item"
+            @click="openBlog(blog.id)"
+          >
+            <div class="related-cover" :style="relatedCover(blog)" />
+            <div class="related-body">
+              <h3>{{ blog.title }}</h3>
+              <p class="muted">
+                {{ blog.name || '匿名用户' }} · ❤ {{ blog.liked ?? 0 }} · 💬
+                {{ blog.comments ?? 0 }}
+              </p>
+            </div>
+          </article>
+        </div>
+
+        <el-empty v-else description="还没有这家店的笔记，来做第一个分享的人" :image-size="80">
+          <el-button type="primary" plain @click="router.push({ name: 'blog-new' })">
+            写一篇笔记
+          </el-button>
+        </el-empty>
       </section>
     </template>
   </div>
@@ -244,13 +367,20 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-bottom: 12px;
+  margin-bottom: 0;
   padding: 6px 10px;
   font-size: 14px;
   color: var(--text-sub);
   background: transparent;
   border: none;
   cursor: pointer;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
 }
 
 .back:hover {
@@ -454,6 +584,74 @@ onUnmounted(() => {
   color: var(--text-sub);
 }
 
+.discount {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-dark);
+}
+
+.stock {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.related {
+  margin-top: 20px;
+  padding: 22px 24px 26px;
+}
+
+.related-list {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.related-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  background: #fafbfc;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.related-item:hover {
+  background: #fff;
+  border-color: rgba(255, 102, 51, 0.3);
+  transform: translateY(-2px);
+}
+
+.related-cover {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  background-size: cover;
+  background-position: center;
+}
+
+.related-body {
+  min-width: 0;
+}
+
+.related-body h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.related-body p {
+  margin: 0;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
 @media (max-width: 900px) {
   .hero {
     grid-template-columns: 1fr;
@@ -465,6 +663,10 @@ onUnmounted(() => {
 
   .voucher {
     flex-wrap: wrap;
+  }
+
+  .related-list {
+    grid-template-columns: 1fr;
   }
 }
 </style>

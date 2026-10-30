@@ -74,6 +74,12 @@ function open(blog: Blog) {
   router.push({ name: 'blog-detail', params: { id: blog.id } })
 }
 
+function openAuthor(userId?: number) {
+  if (userId) {
+    router.push({ name: 'other-profile', params: { id: userId } })
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -120,7 +126,7 @@ onMounted(load)
             <h3>{{ blog.title }}</h3>
             <p class="summary">{{ summary(blog.content) }}</p>
             <footer class="meta">
-              <div class="author">
+              <div class="author" @click.stop="openAuthor(blog.userId)">
                 <el-avatar :size="24" :src="blog.icon">{{ authorInitial(blog) }}</el-avatar>
                 <span>{{ authorName(blog) }}</span>
               </div>

@@ -32,6 +32,10 @@ export interface Voucher {
   payValue?: number
   actualValue?: number
   type?: number
+  status?: number
+  stock?: number
+  beginTime?: string
+  endTime?: string
 }
 
 export interface Blog {
@@ -46,6 +50,7 @@ export interface Blog {
   name?: string
   icon?: string
   createTime?: string
+  isLike?: boolean
 }
 
 export const sendCode = (phone: string) =>
@@ -72,6 +77,9 @@ export const searchShops = (name: string) =>
 
 export const listVouchers = (shopId: number | string) =>
   http.get<any, Voucher[]>(`/voucher/list/${shopId}`)
+
+export const seckillVoucher = (voucherId: number | string) =>
+  http.post<any, number>(`/voucher-order/seckill/${voucherId}`)
 
 export const listHotBlogs = (current = 1) =>
   http.get<any, Blog[]>('/blog/hot', { params: { current } })
@@ -177,4 +185,23 @@ export const uploadBlogImage = (file: File) => {
 
 export const deleteBlogImage = (name: string) =>
   http.get<any, void>('/upload/blog/delete', { params: { name } })
+
+/* ------------------------------ 评论 ------------------------------ */
+
+export interface BlogComment {
+  id: number
+  blogId: number
+  userId: number
+  content: string
+  liked?: number
+  createTime?: string
+  name?: string
+  icon?: string
+}
+
+export const listComments = (blogId: number | string, current = 1) =>
+  http.get<any, BlogComment[]>(`/blog-comments/of/${blogId}`, { params: { current } })
+
+export const createComment = (blogId: number, content: string) =>
+  http.post<any, number>('/blog-comments', { blogId, content })
 

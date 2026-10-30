@@ -56,12 +56,11 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
                 .page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
         // 获取当前页数据
         List<Blog> records = page.getRecords();
-        if(UserHolder.getUser() != null){
-            // 查询用户
-            records.forEach(blog ->{
-                this.queryBlogUser(blog);
-                this.isBlogLiked(blog);});
-            return Result.ok(records);
+        // 作者昵称/头像属于公开信息，未登录也要填充，否则列表里全是「匿名用户」
+        records.forEach(this::queryBlogUser);
+        // 是否点赞依赖当前登录用户，只在登录时查询
+        if (UserHolder.getUser() != null) {
+            records.forEach(this::isBlogLiked);
         }
         return Result.ok(records);
     }
@@ -212,6 +211,9 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         Long userId = blog.getUserId();
         if (userId != null) {
             User user = userService.getById(userId);
+            if (user == null) {
+                return;
+            }
             blog.setName(user.getNickName());
             blog.setIcon(user.getIcon());
         }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { listShopTypes, listShopsByType } from '@/api'
@@ -17,6 +17,9 @@ const shops = ref<Shop[]>([])
 const current = ref(1)
 const hasNext = ref(false)
 const loading = ref(false)
+const sentinel = ref<HTMLElement | null>(null)
+const loadingMore = ref(false)
+let observer: IntersectionObserver | null = null
 
 function currentTypeName() {
   return types.value.find((item) => item.id === activeTypeId.value)?.name || '全部'
@@ -33,21 +36,57 @@ async function loadTypes() {
   }
 }
 
-async function loadShops() {
+async function loadShops(reset = true) {
   if (activeTypeId.value == null) {
     return
   }
-  loading.value = true
+  if (reset) {
+    loading.value = true
+    current.value = 1
+  } else {
+    if (!hasNext.value || loadingMore.value) {
+      return
+    }
+    loadingMore.value = true
+  }
   try {
     const data = await listShopsByType({ typeId: activeTypeId.value, current: current.value })
-    shops.value = data || []
-    hasNext.value = (data?.length || 0) === PAGE_SIZE
+    const list = data || []
+    shops.value = reset ? list : [...shops.value, ...list]
+    hasNext.value = list.length === PAGE_SIZE
   } catch {
-    shops.value = []
-    hasNext.value = false
+    if (reset) {
+      shops.value = []
+      hasNext.value = false
+    }
   } finally {
     loading.value = false
+    loadingMore.value = false
   }
+}
+
+function loadMore() {
+  if (!hasNext.value || loading.value || loadingMore.value) {
+    return
+  }
+  current.value += 1
+  loadShops(false)
+}
+
+function setupObserver() {
+  observer?.disconnect()
+  if (!sentinel.value) {
+    return
+  }
+  observer = new IntersectionObserver(
+    (entries) => {
+      if (entries[0]?.isIntersecting) {
+        loadMore()
+      }
+    },
+    { rootMargin: '240px' }
+  )
+  observer.observe(sentinel.value)
 }
 
 function selectType(id: number) {
@@ -55,17 +94,8 @@ function selectType(id: number) {
     return
   }
   activeTypeId.value = id
-  current.value = 1
   router.replace({ query: { typeId: String(id) } })
-  loadShops()
-}
-
-function go(page: number) {
-  if (page < 1 || (page > current.value && !hasNext.value)) {
-    return
-  }
-  current.value = page
-  loadShops()
+  loadShops(true)
 }
 
 function scoreText(shop: Shop) {
@@ -79,6 +109,13 @@ function openShop(id: number) {
 onMounted(async () => {
   await loadTypes()
   await loadShops()
+  await nextTick()
+  setupObserver()
+})
+
+onUnmounted(() => {
+  observer?.disconnect()
+  observer = null
 })
 </script>
 
@@ -152,10 +189,10 @@ onMounted(async () => {
       <el-empty v-else description="这个分类下暂时没有店铺" />
     </template>
 
-    <div v-if="!loading && shops.length" class="pager">
-      <el-button :disabled="current === 1" @click="go(current - 1)">上一页</el-button>
-      <span class="pager-num">第 {{ current }} 页</span>
-      <el-button :disabled="!hasNext" @click="go(current + 1)">下一页</el-button>
+    <div v-if="!loading && shops.length" ref="sentinel" class="sentinel">
+      <span v-if="loadingMore">正在加载更多…</span>
+      <span v-else-if="!hasNext">已经到底啦，共 {{ shops.length }} 家店</span>
+      <span v-else>继续下滑查看更多</span>
     </div>
   </section>
 </template>
@@ -312,17 +349,11 @@ onMounted(async () => {
   font-size: 12px;
 }
 
-.pager {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  margin-top: 28px;
-}
-
-.pager-num {
-  font-size: 14px;
-  color: var(--text-sub);
+.sentinel {
+  padding: 26px 0 6px;
+  text-align: center;
+  font-size: 13px;
+  color: #9ca3af;
 }
 
 .skeleton-card {

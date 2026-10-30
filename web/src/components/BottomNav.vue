@@ -129,6 +129,13 @@ const activeKey = computed(() => {
   color: var(--brand);
 }
 
+@media (min-width: 641px) {
+  /* 宽屏已有顶部导航，底部导航隐藏，保证任何尺寸下只出现一份导航 */
+  .bottom-nav {
+    display: none;
+  }
+}
+
 @media (max-width: 640px) {
   .bottom-nav {
     left: 0;

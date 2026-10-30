@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { EditPen, Location, Star, TrophyBase } from '@element-plus/icons-vue'
@@ -65,8 +65,17 @@ async function handleSign() {
   }
 }
 
+/**
+ * 后端 /blog/of/me 不返回总数，用「已加载条数 + 是否还有下一页」推算总条数，
+ * 让分页器能显示页码
+ */
+const blogTotal = computed(() => {
+  const loaded = (current.value - 1) * PAGE_SIZE + blogs.value.length
+  return hasNext.value ? loaded + PAGE_SIZE : loaded
+})
+
 function go(page: number) {
-  if (page < 1 || (page > current.value && !hasNext.value)) {
+  if (page === current.value || page < 1) {
     return
   }
   current.value = page
@@ -201,9 +210,14 @@ onMounted(async () => {
         </template>
 
         <div v-if="!loadingBlogs && blogs.length" class="pager">
-          <el-button :disabled="current === 1" @click="go(current - 1)">上一页</el-button>
-          <span class="pager-num">第 {{ current }} 页</span>
-          <el-button :disabled="!hasNext" @click="go(current + 1)">下一页</el-button>
+          <el-pagination
+            background
+            layout="prev, pager, next"
+            :current-page="current"
+            :page-size="PAGE_SIZE"
+            :total="blogTotal"
+            @current-change="go"
+          />
         </div>
       </main>
     </div>
@@ -420,13 +434,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
   margin-top: 24px;
-}
-
-.pager-num {
-  font-size: 14px;
-  color: var(--text-sub);
 }
 
 @media (max-width: 900px) {

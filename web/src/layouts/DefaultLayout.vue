@@ -35,6 +35,9 @@ function logout() {
         </nav>
 
         <div class="user-area">
+          <el-button type="primary" size="small" round @click="router.push({ name: 'blog-new' })">
+            写笔记
+          </el-button>
           <template v-if="userStore.user">
             <router-link to="/profile" class="user-link">
               <el-avatar :size="28" :src="userStore.user.icon">

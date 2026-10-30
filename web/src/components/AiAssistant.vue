@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ChatDotRound, Promotion } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { cancelOrder, confirmOrder, getPendingOrder, getUsage } from '@/api'
@@ -36,10 +36,104 @@ const pendingOrder = ref<PendingOrder | null>(null)
 const confirming = ref(false)
 
 const SESSION_KEY = 'hmdp_agent_session'
+const DRAWER_SIZE = 420
+const FAB_SIZE = 60
+const EDGE = 16
 
-const fabStyle = computed(() => ({
-  right: assistant.visible ? '444px' : '24px'
-}))
+/** 悬浮球贴哪一侧，决定抽屉从哪边滑出 */
+const fabSide = ref<'left' | 'right'>('right')
+/** 悬浮球的纵向位置（px） */
+const fabTop = ref(
+  typeof window !== 'undefined' ? Math.max(window.innerHeight - FAB_SIZE - 100, EDGE) : 200
+)
+const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1200)
+const dragging = ref(false)
+const dragPos = ref({ x: 0, y: 0 })
+let dragStart: { pointerX: number; pointerY: number; left: number; top: number } | null = null
+let moved = false
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
+
+const fabStyle = computed(() => {
+  if (dragging.value) {
+    return { left: `${dragPos.value.x}px`, top: `${dragPos.value.y}px` }
+  }
+  // 抽屉展开时把悬浮球推到抽屉外侧，收起时贴边
+  const offset = assistant.visible
+    ? Math.min(DRAWER_SIZE + 24, Math.max(viewportWidth.value - FAB_SIZE - EDGE, EDGE))
+    : EDGE
+  // 统一用 left 定位，吸附时才能有平滑的过渡动画
+  const left =
+    fabSide.value === 'left' ? offset : Math.max(viewportWidth.value - FAB_SIZE - offset, EDGE)
+  return { left: `${left}px`, top: `${fabTop.value}px` }
+})
+
+const drawerDirection = computed(() => (fabSide.value === 'left' ? 'ltr' : 'rtl'))
+
+function onPointerDown(event: PointerEvent) {
+  if (event.button !== 0) {
+    return
+  }
+  const el = event.currentTarget as HTMLElement
+  const rect = el.getBoundingClientRect()
+  dragStart = { pointerX: event.clientX, pointerY: event.clientY, left: rect.left, top: rect.top }
+  dragPos.value = { x: rect.left, y: rect.top }
+  moved = false
+  dragging.value = true
+  window.addEventListener('pointermove', onPointerMove)
+  window.addEventListener('pointerup', onPointerUp)
+}
+
+function onPointerMove(event: PointerEvent) {
+  if (!dragStart) {
+    return
+  }
+  const dx = event.clientX - dragStart.pointerX
+  const dy = event.clientY - dragStart.pointerY
+  if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+    moved = true
+  }
+  dragPos.value = {
+    x: clamp(dragStart.left + dx, EDGE, window.innerWidth - FAB_SIZE - EDGE),
+    y: clamp(dragStart.top + dy, EDGE, window.innerHeight - FAB_SIZE - 90)
+  }
+}
+
+function onPointerUp() {
+  window.removeEventListener('pointermove', onPointerMove)
+  window.removeEventListener('pointerup', onPointerUp)
+  if (!dragStart) {
+    return
+  }
+  const wasMoved = moved
+  const centerX = dragPos.value.x + FAB_SIZE / 2
+  fabSide.value = centerX < window.innerWidth / 2 ? 'left' : 'right'
+  fabTop.value = dragPos.value.y
+  dragging.value = false
+  dragStart = null
+  moved = false
+  // 没有位移视为点击，走开关逻辑
+  if (!wasMoved) {
+    toggle()
+  }
+}
+
+function onWindowResize() {
+  viewportWidth.value = window.innerWidth
+  fabTop.value = clamp(fabTop.value, EDGE, window.innerHeight - FAB_SIZE - 90)
+}
+
+onMounted(() => {
+  window.addEventListener('resize', onWindowResize)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', onWindowResize)
+  window.removeEventListener('pointermove', onPointerMove)
+  window.removeEventListener('pointerup', onPointerUp)
+})
 
 function sessionId() {
   let id = localStorage.getItem(SESSION_KEY)
@@ -244,14 +338,20 @@ function handleKeydown(event: KeyboardEvent) {
 
 <template>
   <div class="assistant">
-    <button class="fab" type="button" :style="fabStyle" @click="toggle">
+    <button
+      class="fab"
+      type="button"
+      :class="{ dragging }"
+      :style="fabStyle"
+      @pointerdown="onPointerDown"
+    >
       <el-icon :size="22"><ChatDotRound /></el-icon>
       <span>{{ assistant.visible ? '收起' : '问 AI' }}</span>
     </button>
 
     <el-drawer
       v-model="assistant.visible"
-      direction="rtl"
+      :direction="drawerDirection"
       size="420px"
       :with-header="false"
       :modal="false"
@@ -344,8 +444,7 @@ function handleKeydown(event: KeyboardEvent) {
 <style scoped>
 .fab {
   position: fixed;
-  /* 让开底部导航条（高约 64px + 16px 间距） */
-  bottom: 100px;
+  /* 纵向位置由拖拽逻辑用行内 top 控制 */
   /* 必须高于 el-drawer 的遮罩层：overlay 的 z-index 由 Element Plus 弹层管理器
      从 2000 起递增，悬浮球若只用 2000 会被透明遮罩盖住，导致「收起」点不动 */
   z-index: 3000;
@@ -356,13 +455,24 @@ function handleKeydown(event: KeyboardEvent) {
   gap: 2px;
   width: 60px;
   height: 60px;
+  padding: 0;
   border: none;
   border-radius: 50%;
   color: #fff;
   background: var(--brand);
   box-shadow: 0 8px 20px rgba(255, 102, 51, 0.35);
-  cursor: pointer;
-  transition: right 0.24s ease, transform 0.18s ease;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  transition: top 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    left 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    right 0.28s cubic-bezier(0.22, 1, 0.36, 1), transform 0.18s ease;
+}
+
+.fab.dragging {
+  cursor: grabbing;
+  transition: none;
+  box-shadow: 0 12px 28px rgba(255, 102, 51, 0.45);
 }
 
 .fab:hover {

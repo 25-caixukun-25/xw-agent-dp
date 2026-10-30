@@ -1,0 +1,22 @@
+# Java
+server/target/
+*.class
+
+# 日志
+*.log
+
+# 密钥（只提交 .env.example）
+server/.env
+
+# 前端
+web/node_modules/
+web/dist/
+
+# 生成的种子 SQL（由 generate_seed.py 产出）
+tools/seed/seed.sql
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store

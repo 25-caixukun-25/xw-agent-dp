@@ -67,6 +67,9 @@ export const listShopsByType = (params: {
 
 export const getShop = (id: number | string) => http.get<any, Shop>(`/shop/${id}`)
 
+export const searchShops = (name: string) =>
+  http.get<any, Shop[]>('/shop/of/name', { params: { name } })
+
 export const listVouchers = (shopId: number | string) =>
   http.get<any, Voucher[]>(`/voucher/list/${shopId}`)
 
@@ -117,3 +120,61 @@ export const confirmOrder = (orderId: string) =>
 
 export const cancelOrder = (orderId: string) =>
   http.delete<any, void>(`/agent/order/pending/${orderId}`)
+
+/* ------------------------------ 用户主页 ------------------------------ */
+
+export interface UserInfo {
+  userId: number
+  city?: string
+  introduce?: string
+  fans?: number
+  followee?: number
+  gender?: boolean
+  birthday?: string
+  credits?: number
+  level?: number
+}
+
+export const getUser = (id: number | string) => http.get<any, CurrentUser>(`/user/${id}`)
+
+export const getUserInfo = (id: number | string) =>
+  http.get<any, UserInfo | null>(`/user/info/${id}`)
+
+export const signToday = () => http.post<any, void>('/user/sign')
+
+export const getSignCount = () => http.get<any, number>('/user/sign/count')
+
+export const listMyBlogs = (current = 1) =>
+  http.get<any, Blog[]>('/blog/of/me', { params: { current } })
+
+export const listBlogsOfUser = (id: number | string, current = 1) =>
+  http.get<any, Blog[]>('/blog/of/user', { params: { id, current } })
+
+export const isFollowing = (id: number | string) =>
+  http.get<any, boolean>(`/follow/or/not/${id}`)
+
+export const followUser = (id: number | string, follow: boolean) =>
+  http.put<any, void>(`/follow/${id}/${follow}`)
+
+/* ------------------------------ 笔记 ------------------------------ */
+
+export const createBlog = (data: {
+  title: string
+  content: string
+  images?: string
+  shopId?: number
+}) => http.post<any, number>('/blog', data)
+
+export const likeBlog = (id: number | string) => http.put<any, void>(`/blog/like/${id}`)
+
+export const uploadBlogImage = (file: File) => {
+  const form = new FormData()
+  form.append('file', file)
+  return http.post<any, string>('/upload/blog', form, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
+export const deleteBlogImage = (name: string) =>
+  http.get<any, void>('/upload/blog/delete', { params: { name } })
+

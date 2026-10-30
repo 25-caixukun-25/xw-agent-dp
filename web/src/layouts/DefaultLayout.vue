@@ -3,6 +3,7 @@ import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import AiAssistant from '@/components/AiAssistant.vue'
+import BottomNav from '@/components/BottomNav.vue'
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -28,15 +29,19 @@ function logout() {
 
         <nav class="nav">
           <router-link to="/" exact-active-class="active">首页</router-link>
+          <router-link to="/shops" active-class="active">分类</router-link>
           <router-link to="/blogs" active-class="active">探店笔记</router-link>
+          <router-link to="/profile" active-class="active">我的</router-link>
         </nav>
 
         <div class="user-area">
           <template v-if="userStore.user">
-            <el-avatar :size="28" :src="userStore.user.icon">
-              {{ userStore.user.nickName?.slice(0, 1) }}
-            </el-avatar>
-            <span class="nickname">{{ userStore.user.nickName }}</span>
+            <router-link to="/profile" class="user-link">
+              <el-avatar :size="28" :src="userStore.user.icon">
+                {{ userStore.user.nickName?.slice(0, 1) }}
+              </el-avatar>
+              <span class="nickname">{{ userStore.user.nickName }}</span>
+            </router-link>
             <el-button link type="info" @click="logout">退出</el-button>
           </template>
         </div>
@@ -52,6 +57,7 @@ function logout() {
     </footer>
 
     <AiAssistant />
+    <BottomNav />
   </div>
 </template>
 
@@ -125,9 +131,16 @@ function logout() {
   color: var(--text-main);
 }
 
+.user-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .main {
   flex: 1;
-  padding: 24px 0 40px;
+  /* 给底部导航条留出空间，避免最后一行内容被遮住 */
+  padding: 24px 0 120px;
 }
 
 .footer {
@@ -135,5 +148,29 @@ function logout() {
   text-align: center;
   font-size: 12px;
   color: #9ca3af;
+}
+
+@media (max-width: 640px) {
+  .header-inner {
+    height: 56px;
+    gap: 12px;
+  }
+
+  /* 小屏由底部导航承担入口，顶部导航隐藏腾出空间 */
+  .nav {
+    display: none;
+  }
+
+  .brand {
+    font-size: 17px;
+  }
+
+  .main {
+    padding: 16px 0 110px;
+  }
+
+  .footer {
+    padding-bottom: 88px;
+  }
 }
 </style>

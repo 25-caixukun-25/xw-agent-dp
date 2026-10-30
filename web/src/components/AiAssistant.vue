@@ -344,7 +344,8 @@ function handleKeydown(event: KeyboardEvent) {
 <style scoped>
 .fab {
   position: fixed;
-  bottom: 28px;
+  /* 让开底部导航条（高约 64px + 16px 间距） */
+  bottom: 100px;
   /* 必须高于 el-drawer 的遮罩层：overlay 的 z-index 由 Element Plus 弹层管理器
      从 2000 起递增，悬浮球若只用 2000 会被透明遮罩盖住，导致「收起」点不动 */
   z-index: 3000;
@@ -563,5 +564,15 @@ function handleKeydown(event: KeyboardEvent) {
 
 .composer :deep(.el-textarea) {
   flex: 1;
+}
+</style>
+
+<style>
+/* el-drawer 被 teleport 到 body，scoped 样式覆盖不到，这里用全局样式兜住小屏 */
+@media (max-width: 640px) {
+  .assistant-drawer.el-drawer {
+    width: 100% !important;
+    max-width: 100vw;
+  }
 }
 </style>

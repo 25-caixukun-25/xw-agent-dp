@@ -201,6 +201,8 @@ start-all.bat
 | POST | `/agent/admin/reindex` | 重建向量索引 | 否 |
 | POST | `/agent/admin/reindex-geo` | 重建 GEO 索引 | 否 |
 | GET | `/agent/admin/semantic?q=` | 语义检索调试 | 否 |
+| GET | `/sse` | MCP SSE 建连 | 否 |
+| POST | `/mcp/message?sessionId=` | MCP JSON-RPC 消息 | 否 |
 
 SSE 事件类型：`session` / `tool` / `delta` / `usage` / `error` / `done`。
 
@@ -223,6 +225,42 @@ SSE 事件类型：`session` / `tool` / `delta` / `usage` / `error` / `done`。
 - 全部只读，不允许下单、支付、修改数据
 - 返回字段精简（不含图片 URL），避免上下文膨胀
 - 单轮最多 8 次调用，超限让模型基于已有信息作答
+
+## MCP Server
+
+同一批工具还通过 MCP（Model Context Protocol）对外暴露，Claude Desktop、WorkBuddy 等支持 MCP 的客户端可以直接调用，
+不需要经过本项目的对话框。
+
+- 传输方式：SSE
+- 建连：`GET /sse`，服务端返回 `event:endpoint` 和 `/mcp/message?sessionId=...`
+- 服务标识：`zhimi-life` 1.0.0
+- 工具：与上面 9 个完全一致（复用同一批 Bean，没有复制实现）
+
+客户端配置（Claude Desktop 的 `claude_desktop_config.json`，或 WorkBuddy 自定义连接器）：
+
+```json
+{
+  "mcpServers": {
+    "zhimi-life": {
+      "url": "http://localhost:8081/sse"
+    }
+  }
+}
+```
+
+部分客户端只支持 stdio，可以用桥接：
+
+```bash
+npx -y mcp-remote http://localhost:8081/sse
+```
+
+自测脚本：
+
+```bash
+python tools/mcp/mcp_probe.py
+```
+
+依次执行 `initialize` → `tools/list` → `tools/call`，打印 9 个工具清单和一次真实店铺查询结果。
 
 ## 成本实测
 
@@ -265,7 +303,7 @@ ThreadLocal 传不过去，改成轮询埋点表（250ms）推送 `tool` 事件�
 
 ## Roadmap
 
-- [ ] MCP Server：把 9 个工具暴露给 Claude Desktop / WorkBuddy
+- [x] MCP Server：9 个工具已通过 SSE 暴露，支持 Claude Desktop / WorkBuddy 调用
 - [ ] 评测集：20 条用例，统计工具选择准确率
 - [ ] 写操作：下单 + 二次确认 + 幂等
 - [ ] 限流、鉴权、单元测试、Docker Compose

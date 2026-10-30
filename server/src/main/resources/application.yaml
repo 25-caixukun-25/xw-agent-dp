@@ -30,6 +30,13 @@ spring:
   ai:
     retry:
       max-attempts: 1
+    mcp:
+      server:
+        name: zhimi-life
+        version: 1.0.0
+        protocol: SSE
+        type: SYNC
+        instructions: 智觅生活店铺查询工具：可按分类/名称/位置查店，也能做自然语言语义检索。全部只读。
     model:
       chat: openai
       embedding: none
